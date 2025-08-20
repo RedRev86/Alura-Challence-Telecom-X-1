@@ -1,0 +1,99 @@
+# =========================
+# 1. Importar librerías
+# =========================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
+from imblearn.over_sampling import SMOTE
+
+# =========================
+# 2. Cargar datos
+# =========================
+url = "https://raw.githubusercontent.com/ingridcristh/challenge2-data-science-LATAM/refs/heads/main/TelecomX_Data.json"
+df = pd.read_json(url)
+
+print(df.head())
+print(df.info())
+
+# =========================
+# 3. Limpieza
+# =========================
+# Eliminar columnas irrelevantes
+if "customerID" in df.columns:
+    df = df.drop("customerID", axis=1)
+
+# Eliminar espacios en variables tipo object
+df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+
+# Convertir TotalCharges a numérico (puede tener espacios vacíos)
+df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
+df["TotalCharges"].fillna(df["TotalCharges"].median(), inplace=True)
+
+# =========================
+# 4. Target y balanceo
+# =========================
+print(df["Churn"].value_counts(normalize=True))
+
+X = df.drop("Churn", axis=1)
+y = df["Churn"].map({"Yes":1, "No":0})
+
+# One-Hot Encoding para categóricas
+X = pd.get_dummies(X, drop_first=True)
+
+# Balanceo con SMOTE
+smote = SMOTE(random_state=42)
+X_bal, y_bal = smote.fit_resample(X, y)
+
+# =========================
+# 5. Train / Test Split
+# =========================
+X_train, X_test, y_train, y_test = train_test_split(X_bal, y_bal, test_size=0.2, random_state=42)
+
+# =========================
+# 6. Modelos
+# =========================
+
+# (a) Regresión Logística con normalización
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+log_reg = LogisticRegression(max_iter=500)
+log_reg.fit(X_train_scaled, y_train)
+y_pred_lr = log_reg.predict(X_test_scaled)
+
+# (b) Random Forest sin normalización
+rf = RandomForestClassifier(n_estimators=200, random_state=42)
+rf.fit(X_train, y_train)
+y_pred_rf = rf.predict(X_test)
+
+# =========================
+# 7. Evaluación
+# =========================
+print("=== Regresión Logística ===")
+print(classification_report(y_test, y_pred_lr))
+print("ROC-AUC:", roc_auc_score(y_test, log_reg.predict_proba(X_test_scaled)[:,1]))
+
+print("\n=== Random Forest ===")
+print(classification_report(y_test, y_pred_rf))
+print("ROC-AUC:", roc_auc_score(y_test, rf.predict_proba(X_test)[:,1]))
+
+# =========================
+# 8. Interpretación
+# =========================
+# Importancia de variables Random Forest
+importances = pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False)
+print(importances.head(10))
+
+plt.figure(figsize=(10,5))
+sns.barplot(x=importances.head(10), y=importances.head(10).index)
+plt.title("Top 10 Variables más importantes en Churn (Random Forest)")
+plt.show()
